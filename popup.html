@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>MarkGPT</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 260px;
+      min-height: 120px;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: #212121;
+      color: #ececec;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+    }
+
+    .popup {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #ffffff;
+      text-align: center;
+    }
+
+    .toggle {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      cursor: pointer;
+    }
+
+    .toggle input {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .track {
+      width: 48px;
+      height: 26px;
+      border-radius: 26px;
+      background: #4a4a4a;
+      transition: background 0.2s ease;
+      position: relative;
+      border: 1px solid #5a5a5a;
+    }
+
+    .knob {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #ffffff;
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      transition: transform 0.2s ease;
+    }
+
+    .toggle input:checked + .track {
+      background: #787878;
+      border-color: #9a9a9a;
+    }
+
+    .toggle input:checked + .track .knob {
+      transform: translateX(22px);
+    }
+  </style>
+</head>
+<body>
+  <div class="popup">
+    <label class="toggle" title="Enable or disable MarkGPT">
+      <input type="checkbox" id="enableToggle" checked />
+      <span class="track"><span class="knob"></span></span>
+    </label>
+    <div class="title">MarkGPT by Sijomon P S</div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
