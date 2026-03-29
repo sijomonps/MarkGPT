@@ -57,9 +57,9 @@
     .bk-rbtn svg,.bk-abs svg{pointer-events:none}
     .bk-rbtn:hover{opacity:.9;background:rgba(127,127,127,.12)}
     .bk-rbtn.on{opacity:.8}
-    .bk-claude-host{position:relative !important}
+    .bk-claude-host, .bk-chatgpt-host{position:relative !important}
     .bk-abs{position:absolute;bottom:6px;right:6px;width:22px;height:22px;border-radius:5px;border:none;background:rgba(127,127,127,.08);color:inherit;opacity:.4;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:opacity .15s,background .12s;pointer-events:auto;z-index:9999}
-    .bk-claude-host:hover .bk-abs{opacity:.7}
+    .bk-claude-host:hover .bk-abs, .bk-chatgpt-host:hover .bk-abs{opacity:.7}
     .bk-abs:hover{opacity:1 !important;background:rgba(127,127,127,.18)}
     .bk-abs.on{opacity:.75}
     /* Gemini: stable host styling */
@@ -298,18 +298,18 @@
 
   function stopObserver() {
     if (observer) { observer.disconnect(); observer = null; }
-    if (syncTimer) { cancelAnimationFrame(syncTimer); syncTimer = 0; }
+    if (syncTimer) { clearTimeout(syncTimer); syncTimer = 0; }
     if (heartbeat) { clearInterval(heartbeat); heartbeat = 0; }
     if (geminiSyncDebounce) { clearTimeout(geminiSyncDebounce); geminiSyncDebounce = 0; }
   }
 
   function scheduleSync() {
     if (syncTimer) return;
-    syncTimer = requestAnimationFrame(() => {
+    syncTimer = setTimeout(() => {
       syncTimer = 0;
       if (!enabled) return;
       syncButtons();
-    });
+    }, 500);
   }
 
   /* ── Core sync: find messages → ensure one button each ── */
@@ -349,13 +349,17 @@
     if (!el || !(el instanceof HTMLElement)) return null;
 
     if (IS_CHATGPT) {
-      const article = el.closest("article");
-      if (article) return article;
-      const msgId = el.closest("[data-message-id]");
+      let inner = el;
+      if (el.matches("[data-testid^='conversation-turn'], article")) {
+        inner = el.querySelector("[data-message-id], [data-message-author-role]") || el;
+      }
+      const msgId = inner.closest("[data-message-id]");
       if (msgId) return msgId;
-      const turn = el.closest("[data-testid^='conversation-turn']");
+      const role = inner.closest("[data-message-author-role]");
+      if (role) return role;
+      const turn = inner.closest("[data-testid^='conversation-turn']");
       if (turn) return turn;
-      return el;
+      return inner;
     }
 
     if (IS_CLAUDE) {
@@ -429,17 +433,15 @@
       btnMap.set(host, btn);
       updateBtn(btn, messageEl);
     } else {
-      // ChatGPT: inline row at bottom
-      const row = document.createElement("div");
-      row.className = "bk-row";
+      // ChatGPT: inside the message area completely
+      host.classList.add("bk-chatgpt-host");
       const btn = document.createElement("button");
-      btn.className = "bk-rbtn";
+      btn.className = "bk-abs";
       btn.type = "button";
       btn.title = "Bookmark this message";
       btn.innerHTML = IC_OUT;
       msgElMap.set(btn, messageEl);
-      row.appendChild(btn);
-      host.appendChild(row);
+      host.appendChild(btn);
       activeBtnParents.add(host);
       btnMap.set(host, btn);
       updateBtn(btn, messageEl);

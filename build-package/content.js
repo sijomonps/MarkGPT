@@ -1,4 +1,4 @@
-/* MarkGPT - content.js (v2.0 optimized) */
+/* MarkGPT - content.js (v2.2 - Gemini 2026 layout fix) */
 (() => {
   if (window.__bkmrk_loaded) return;
   window.__bkmrk_loaded = true;
@@ -25,6 +25,7 @@
   let heartbeat = 0;
   const btnMap = new WeakMap();   // host element → button element
   const hostMap = new WeakMap();  // message element → host element
+  const msgElMap = new WeakMap(); // button → messageEl reference
 
   /* ── Selectors per platform ── */
   const SEL_CHATGPT = "[data-message-author-role], [data-message-id], [data-testid^='conversation-turn']";
@@ -51,15 +52,19 @@
   const style = document.createElement("style");
   style.id = "bkmrk-css";
   style.textContent = `
-    .bk-row{display:flex;justify-content:flex-end;width:100%;margin-top:4px;pointer-events:auto}
-    .bk-rbtn{width:22px;height:22px;border-radius:5px;border:none;background:transparent;color:inherit;opacity:.45;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:opacity .15s,background .12s;pointer-events:auto}
+    .bk-row{display:flex;justify-content:flex-end;width:100%;margin-top:4px;pointer-events:auto;position:relative;z-index:9999}
+    .bk-rbtn{width:22px;height:22px;border-radius:5px;border:none;background:transparent;color:inherit;opacity:.45;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:opacity .15s,background .12s;pointer-events:auto;position:relative;z-index:9999}
+    .bk-rbtn svg,.bk-abs svg{pointer-events:none}
     .bk-rbtn:hover{opacity:.9;background:rgba(127,127,127,.12)}
     .bk-rbtn.on{opacity:.8}
-    .bk-claude-host{position:relative !important}
-    .bk-abs{position:absolute;bottom:6px;right:6px;width:22px;height:22px;border-radius:5px;border:none;background:rgba(127,127,127,.08);color:inherit;opacity:.4;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:opacity .15s,background .12s;pointer-events:auto;z-index:10}
-    .bk-claude-host:hover .bk-abs{opacity:.7}
+    .bk-claude-host, .bk-chatgpt-host{position:relative !important}
+    .bk-abs{position:absolute;bottom:6px;right:6px;width:22px;height:22px;border-radius:5px;border:none;background:rgba(127,127,127,.08);color:inherit;opacity:.4;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:opacity .15s,background .12s;pointer-events:auto;z-index:9999}
+    .bk-claude-host:hover .bk-abs, .bk-chatgpt-host:hover .bk-abs{opacity:.7}
     .bk-abs:hover{opacity:1 !important;background:rgba(127,127,127,.18)}
     .bk-abs.on{opacity:.75}
+    /* Gemini: stable host styling */
+    model-response.bk-gemini-host,user-query.bk-gemini-host{display:block !important;position:relative}
+    model-response.bk-gemini-host .bk-row,user-query.bk-gemini-host .bk-row{display:flex;justify-content:flex-end;width:100%;margin-top:2px;padding-right:4px;box-sizing:border-box}
     #bk-t{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(8px);background:#2f2f2f;color:#e0e0e0;font:500 12px/1 system-ui,sans-serif;padding:10px 20px;border-radius:22px;border:1px solid rgba(255,255,255,.08);box-shadow:0 4px 20px rgba(0,0,0,.5);opacity:0;pointer-events:none;z-index:2147483647;transition:opacity .2s,transform .2s;white-space:nowrap}
     #bk-t.on{opacity:1;transform:translateX(-50%) translateY(0)}
     #bk-p{position:fixed;top:72px;left:10px;z-index:2147483640;font:13px/1.4 system-ui,sans-serif;display:flex;flex-direction:column;align-items:flex-start;gap:4px}
@@ -80,6 +85,18 @@
     .bk-li-del:hover{background:rgba(255,255,255,.08);color:#ccc}
     .bk-em{padding:12px 8px;text-align:center;color:#4a4a4a;font-size:11px}
     #bk-wm{padding:5px 8px 6px;text-align:center;font-size:9px;color:rgba(255,255,255,.45);letter-spacing:.4px;border-top:1px solid rgba(255,255,255,.12);user-select:none}
+    #bk-modal-overlay{position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,.55);z-index:2147483646;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;pointer-events:auto}
+    #bk-modal-overlay.show{opacity:1}
+    #bk-modal{background:#2a2a2a;border:1px solid rgba(255,255,255,.15);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.6);padding:18px 20px;width:320px;max-width:90vw;font:13px/1.5 system-ui,sans-serif;color:#e0e0e0}
+    #bk-modal h3{margin:0 0 12px;font-size:14px;font-weight:600;color:#fff}
+    #bk-modal-input{width:100%;box-sizing:border-box;padding:8px 10px;border-radius:7px;border:1px solid rgba(255,255,255,.15);background:#1e1e1e;color:#e0e0e0;font:13px system-ui,sans-serif;outline:none;transition:border-color .15s}
+    #bk-modal-input:focus{border-color:rgba(255,255,255,.35)}
+    #bk-modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+    #bk-modal-btns button{padding:6px 16px;border-radius:7px;border:none;font:500 12px system-ui,sans-serif;cursor:pointer;transition:background .12s}
+    #bk-modal-cancel{background:rgba(255,255,255,.08);color:#aaa}
+    #bk-modal-cancel:hover{background:rgba(255,255,255,.14)}
+    #bk-modal-save{background:rgba(59,130,246,.8);color:#fff}
+    #bk-modal-save:hover{background:rgba(59,130,246,1)}
   `;
   document.head.appendChild(style);
 
@@ -113,6 +130,7 @@
   function boot() {
     mkToast();
     mkPanel();
+    installGlobalClickHandler();
     startObserver();
   }
 
@@ -126,7 +144,50 @@
     stopObserver();
     document.querySelectorAll(".bk-row, .bk-abs").forEach(b => b.remove());
     document.querySelectorAll(".bk-claude-host").forEach(h => h.classList.remove("bk-claude-host"));
+    document.querySelectorAll(".bk-gemini-host").forEach(h => h.classList.remove("bk-gemini-host"));
     if (panel) panel.style.display = "none";
+  }
+
+  /* ── Global click handler (capture phase on document) ── */
+  let globalClickInstalled = false;
+  function installGlobalClickHandler() {
+    if (globalClickInstalled) return;
+    globalClickInstalled = true;
+
+    // Use capture phase at the document level to intercept clicks BEFORE
+    // React/Angular/etc. event delegation can swallow them
+    document.addEventListener("click", (e) => {
+      const btn = e.target.closest(".bk-rbtn, .bk-abs");
+      if (!btn) return;
+
+      // This is our bookmark button — stop everything
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+
+      const msgEl = msgElMap.get(btn);
+      if (!msgEl) return;
+
+      if (isSaved(msgEl)) {
+        flash("Already bookmarked");
+        return;
+      }
+      doSave(msgEl);
+    }, true); // capture phase
+
+    // Also block mousedown/pointerdown from propagating on our BOOKMARK buttons only
+    document.addEventListener("mousedown", (e) => {
+      if (e.target.closest(".bk-rbtn, .bk-abs")) {
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+      }
+    }, true);
+    document.addEventListener("pointerdown", (e) => {
+      if (e.target.closest(".bk-rbtn, .bk-abs")) {
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+      }
+    }, true);
   }
 
   /* ── Toast ── */
@@ -166,8 +227,18 @@
 
   function posPanel() {
     if (!panel) return;
-    const nav = document.querySelector("nav");
-    const offset = nav ? Math.round(nav.getBoundingClientRect().right) + 10 : 10;
+    let offset = 10;
+    if (IS_GEMINI) {
+      // Gemini sidebar: look for the side-nav or app-drawer
+      const sidebar = document.querySelector("side-navigation-v2, bard-sidenav, mat-sidenav, [class*='sidenav']:not([class*='content'])");
+      if (sidebar) {
+        const r = sidebar.getBoundingClientRect();
+        if (r.width > 0 && r.right < window.innerWidth * 0.5) offset = Math.round(r.right) + 10;
+      }
+    } else {
+      const nav = document.querySelector("nav");
+      if (nav) offset = Math.round(nav.getBoundingClientRect().right) + 10;
+    }
     panel.style.left = Math.min(Math.max(10, offset), window.innerWidth - 230) + "px";
   }
 
@@ -201,34 +272,53 @@
   }
 
   /* ── Observer (debounced) ── */
+  let geminiSyncDebounce = 0;
+
   function startObserver() {
     if (observer) { scheduleSync(); return; }
     scheduleSync();
-    observer = new MutationObserver(() => scheduleSync());
+    observer = new MutationObserver((mutations) => {
+      // For Gemini: skip mutations that are only our own bk-row elements
+      // to prevent the Angular re-render → bk-row removal → sync → re-add loop
+      if (IS_GEMINI) {
+        const isSelfMutation = mutations.every(m =>
+          Array.from(m.addedNodes).every(n => n.nodeType !== 1 || (n instanceof Element && (n.classList.contains('bk-row') || n.classList.contains('bk-rbtn') || n.id === 'bk-t' || n.id === 'bk-p'))) &&
+          Array.from(m.removedNodes).every(n => n.nodeType !== 1 || (n instanceof Element && (n.classList.contains('bk-row') || n.classList.contains('bk-rbtn'))))
+        );
+        if (isSelfMutation) return;
+        scheduleSync();
+      } else {
+        scheduleSync();
+      }
+    });
     observer.observe(document.body, { childList: true, subtree: true });
-    // Heartbeat every 4s (was 1.8s → less lag)
+    // Heartbeat every 4s
     if (!heartbeat) heartbeat = setInterval(() => { if (enabled) scheduleSync(); }, 4000);
   }
 
   function stopObserver() {
     if (observer) { observer.disconnect(); observer = null; }
-    if (syncTimer) { cancelAnimationFrame(syncTimer); syncTimer = 0; }
+    if (syncTimer) { clearTimeout(syncTimer); syncTimer = 0; }
     if (heartbeat) { clearInterval(heartbeat); heartbeat = 0; }
+    if (geminiSyncDebounce) { clearTimeout(geminiSyncDebounce); geminiSyncDebounce = 0; }
   }
 
   function scheduleSync() {
     if (syncTimer) return;
-    syncTimer = requestAnimationFrame(() => {
+    syncTimer = setTimeout(() => {
       syncTimer = 0;
       if (!enabled) return;
       syncButtons();
-    });
+    }, 500);
   }
 
   /* ── Core sync: find messages → ensure one button each ── */
+  const activeBtnParents = new Set(); // track actual parent elements of our buttons
+
   function syncButtons() {
     const messages = getMessages();
     const activeHosts = new Set();
+    activeBtnParents.clear();
 
     for (let i = 0; i < messages.length; i++) {
       const host = findHost(messages[i]);
@@ -238,10 +328,20 @@
     }
 
     // Remove orphaned buttons
-    document.querySelectorAll(".bk-row, .bk-abs").forEach(el => {
-      const h = el.parentElement;
-      if (!h || !activeHosts.has(h)) el.remove();
-    });
+    // For Gemini: only remove .bk-row whose host element no longer has bk-gemini-host class
+    // (avoids false positives from Angular re-renders in inner divs)
+    if (IS_GEMINI) {
+      document.querySelectorAll(".bk-row").forEach(el => {
+        const h = el.parentElement;
+        if (!h || !h.classList.contains("bk-gemini-host")) el.remove();
+        else if (!activeHosts.has(h)) el.remove();
+      });
+    } else {
+      document.querySelectorAll(".bk-row, .bk-abs").forEach(el => {
+        const h = el.parentElement;
+        if (!h || (!activeHosts.has(h) && !activeBtnParents.has(h))) el.remove();
+      });
+    }
   }
 
   /* ── Find the host element to attach the button to ── */
@@ -249,18 +349,20 @@
     if (!el || !(el instanceof HTMLElement)) return null;
 
     if (IS_CHATGPT) {
-      // ChatGPT: prefer article (message wrapper), fallback to turn container
-      const article = el.closest("article");
-      if (article) return article;
-      const msgId = el.closest("[data-message-id]");
+      let inner = el;
+      if (el.matches("[data-testid^='conversation-turn'], article")) {
+        inner = el.querySelector("[data-message-id], [data-message-author-role]") || el;
+      }
+      const msgId = inner.closest("[data-message-id]");
       if (msgId) return msgId;
-      const turn = el.closest("[data-testid^='conversation-turn']");
+      const role = inner.closest("[data-message-author-role]");
+      if (role) return role;
+      const turn = inner.closest("[data-testid^='conversation-turn']");
       if (turn) return turn;
-      return el;
+      return inner;
     }
 
     if (IS_CLAUDE) {
-      // Claude: walk up to find the message turn block
       let best = el;
       let cursor = el;
       const elText = (el.textContent || "").length;
@@ -279,12 +381,8 @@
     }
 
     if (IS_GEMINI) {
-      // Gemini: use model-response or user-query
-      const root = el.closest("model-response") || el.closest("user-query");
-      if (!root) return el;
-      // Find a suitable inner container for appending (avoid appending to custom element directly)
-      const inner = root.querySelector(".response-container, .query-container, .model-response-text, .user-query-text") || root.querySelector("div") || root;
-      return inner;
+      // Gemini: return the custom element itself (model-response / user-query)
+      return el.closest("model-response") || el.closest("user-query") || el;
     }
 
     return el;
@@ -297,6 +395,8 @@
     // Check for existing button
     let existingBtn = btnMap.get(host);
     if (existingBtn && existingBtn.isConnected) {
+      // Update the msgEl mapping in case the element changed
+      msgElMap.set(existingBtn, messageEl);
       updateBtn(existingBtn, messageEl);
       return;
     }
@@ -304,32 +404,21 @@
     // Clean up stale
     host.querySelectorAll(":scope > .bk-row, :scope > .bk-abs").forEach(b => b.remove());
 
-    function makeClickHandler(btn) {
-      btn.addEventListener("click", e => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (isSaved(messageEl)) {
-          flash("Already bookmarked");
-          return;
-        }
-        doSave(messageEl);
-      });
-    }
-
     if (IS_CLAUDE) {
-      // Claude: absolute positioned button, host gets position:relative
       host.classList.add("bk-claude-host");
       const btn = document.createElement("button");
       btn.className = "bk-abs";
       btn.type = "button";
       btn.title = "Bookmark this message";
       btn.innerHTML = IC_OUT;
-      makeClickHandler(btn);
+      msgElMap.set(btn, messageEl);
       host.appendChild(btn);
       btnMap.set(host, btn);
       updateBtn(btn, messageEl);
-    } else {
-      // ChatGPT / Gemini: inline row at bottom
+    } else if (IS_GEMINI) {
+      // Gemini: append directly to model-response / user-query element (NOT inner Angular-managed divs)
+      // This prevents Angular change detection from removing our bk-row when it re-renders inner content
+      host.classList.add("bk-gemini-host");
       const row = document.createElement("div");
       row.className = "bk-row";
       const btn = document.createElement("button");
@@ -337,9 +426,23 @@
       btn.type = "button";
       btn.title = "Bookmark this message";
       btn.innerHTML = IC_OUT;
-      makeClickHandler(btn);
+      msgElMap.set(btn, messageEl);
       row.appendChild(btn);
       host.appendChild(row);
+      activeBtnParents.add(host);
+      btnMap.set(host, btn);
+      updateBtn(btn, messageEl);
+    } else {
+      // ChatGPT: inside the message area completely
+      host.classList.add("bk-chatgpt-host");
+      const btn = document.createElement("button");
+      btn.className = "bk-abs";
+      btn.type = "button";
+      btn.title = "Bookmark this message";
+      btn.innerHTML = IC_OUT;
+      msgElMap.set(btn, messageEl);
+      host.appendChild(btn);
+      activeBtnParents.add(host);
       btnMap.set(host, btn);
       updateBtn(btn, messageEl);
     }
@@ -357,7 +460,7 @@
     let raw;
     try { raw = document.querySelectorAll(sel); } catch { return []; }
     if (!raw.length && IS_GEMINI) {
-      // Gemini fallback: try shadow DOM
+      // Gemini fallback: try finding message-content elements
       const mc = document.querySelectorAll("message-content");
       const results = [];
       mc.forEach(m => {
@@ -386,7 +489,6 @@
     }
 
     if (!filtered.length && IS_CLAUDE) {
-      // Claude fallback: heuristic
       return dedup(claudeFallback());
     }
 
@@ -394,19 +496,16 @@
   }
 
   function dedup(elements) {
-    // Sort by document order
     elements.sort((a, b) => {
       const cmp = a.compareDocumentPosition(b);
       return cmp & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
     });
 
-    // Dedup by host → only one per host
     const seen = new Set();
     const result = [];
     for (const el of elements) {
       const host = findHost(el);
       if (!host || seen.has(host)) continue;
-      // Also skip if this host is a descendant of an already-seen host
       let isChild = false;
       for (const s of seen) {
         if (s.contains(host) || host.contains(s)) { isChild = true; break; }
@@ -427,7 +526,6 @@
       if (node.closest("#bk-p, #bk-t, .bk-btn, nav, aside, header, footer")) continue;
       const text = (node.textContent || "").trim();
       if (text.length < 30) continue;
-      // Skip if a single child has 85%+ of the text (means we should go deeper)
       let skip = false;
       for (const ch of node.children) {
         if ((ch.textContent || "").trim().length >= text.length * 0.85) { skip = true; break; }
@@ -444,10 +542,18 @@
     if (!el) return "";
     let text = el.textContent || el.innerText || "";
 
-    // Gemini shadow DOM
-    if (IS_GEMINI && text.trim().length < 5) {
-      const mc = el.matches && el.matches("message-content") ? el : el.querySelector("message-content");
-      if (mc && mc.shadowRoot) text = mc.shadowRoot.textContent || "";
+    // For Gemini, also walk into the host's DOM
+    if (IS_GEMINI) {
+      // Try to get text from the root model-response/user-query
+      const root = el.closest("model-response") || el.closest("user-query") || el;
+      const rootText = root.textContent || root.innerText || "";
+      if (rootText.trim().length > text.trim().length) text = rootText;
+
+      // Try shadow DOM
+      if (text.trim().length < 5) {
+        const mc = root.querySelector("message-content") || (root.matches && root.matches("message-content") ? root : null);
+        if (mc && mc.shadowRoot) text = mc.shadowRoot.textContent || "";
+      }
     }
 
     // Claude nested
@@ -456,6 +562,12 @@
         const c = el.querySelector(sel);
         if (c && (c.textContent || "").trim().length > text.trim().length) { text = c.textContent; break; }
       }
+    }
+
+    // ChatGPT: walk up to article to get full text
+    if (IS_CHATGPT && text.trim().length < 5) {
+      const article = el.closest("article");
+      if (article) text = article.textContent || article.innerText || "";
     }
 
     if (!text.trim() && el.shadowRoot) text = el.shadowRoot.textContent || "";
@@ -486,39 +598,114 @@
     return savedScopedSigs.has(basePath(location.href) + "||" + sig);
   }
 
+  /* ── Custom modal dialog ── */
+  function showBookmarkModal() {
+    return new Promise((resolve) => {
+      // Remove any existing modal
+      const old = document.getElementById("bk-modal-overlay");
+      if (old) old.remove();
+
+      const overlay = document.createElement("div");
+      overlay.id = "bk-modal-overlay";
+      overlay.innerHTML =
+        '<div id="bk-modal">' +
+          '<h3>Bookmark Chat</h3>' +
+          '<input id="bk-modal-input" type="text" placeholder="label" autocomplete="off" />' +
+          '<div id="bk-modal-btns">' +
+            '<button id="bk-modal-cancel">Cancel</button>' +
+            '<button id="bk-modal-save">Save</button>' +
+          '</div>' +
+        '</div>';
+
+      document.documentElement.appendChild(overlay);
+      // Force reflow then show
+      void overlay.offsetHeight;
+      overlay.classList.add("show");
+
+      const input = overlay.querySelector("#bk-modal-input");
+      const saveBtn = overlay.querySelector("#bk-modal-save");
+      const cancelBtn = overlay.querySelector("#bk-modal-cancel");
+      let resolved = false;
+
+      function cleanup(result) {
+        if (resolved) return;
+        resolved = true;
+        overlay.classList.remove("show");
+        setTimeout(() => { try { overlay.remove(); } catch(e) {} }, 150);
+        resolve(result);
+      }
+
+      // Block mousedown/pointerdown on the entire overlay from reaching the page,
+      // so platforms can't steal focus or intercept our modal interaction.
+      // We do NOT block click events here — onclick handlers fire normally.
+      const stopDown = (e) => { e.stopPropagation(); e.stopImmediatePropagation(); };
+      overlay.addEventListener("mousedown",   stopDown, true);
+      overlay.addEventListener("pointerdown", stopDown, true);
+
+      // Save button — direct onclick fires at target phase, unblocked.
+      saveBtn.onclick = (e) => {
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        cleanup(input.value.trim());
+      };
+
+      // Cancel button
+      cancelBtn.onclick = (e) => {
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        cleanup(null);
+      };
+
+      // Click on backdrop closes modal
+      overlay.onclick = (e) => {
+        if (e.target === overlay) cleanup(null);
+      };
+
+      input.addEventListener("keydown", (e) => {
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        if (e.key === "Enter") cleanup(input.value.trim());
+        if (e.key === "Escape") cleanup(null);
+      }, true);
+
+      // Focus input
+      setTimeout(() => { try { input.focus(); } catch(e) {} }, 80);
+    });
+  }
+
   /* ── Save ── */
   function doSave(el) {
     const text = msgText(el);
-    let label = "";
-    try {
-      const preview = text.substring(0, 80) + (text.length > 80 ? "…" : "");
-      const result = prompt('Enter a title/label for this bookmark:\n\n"' + preview + '"');
+
+    showBookmarkModal().then(result => {
       if (result === null) return; // cancelled
-      label = result.trim();
-    } catch { label = ""; }
-    if (!label) {
-      const base = norm(text).substring(0, 44);
-      label = base ? (base.length >= 44 ? base + "…" : base) : "Bookmark";
-    }
 
-    allBookmarks.push({
-      label,
-      textSnippet: text.substring(0, 300),
-      url: location.href,
-      savedAt: Date.now(),
-      msgKey: snippetKey(text),
-      msgTail: snippetTail(text),
-      msgLen: text.length,
-      messageId: extractMsgId(el),
-      turnIndex: getMessages().indexOf(el)
-    });
+      let label = result;
+      if (!label) {
+        const t = text || "Message";
+        const base = norm(t).substring(0, 44);
+        label = base ? (base.length >= 44 ? base + "…" : base) : "Bookmark";
+      }
 
-    rebuildIndex();
-    scheduleSync();
-    renderPanel();
-    chrome.storage.local.set({ bookmarks: allBookmarks }, () => {
-      if (chrome.runtime && chrome.runtime.lastError) { flash("Save failed"); return; }
-      flash("Saved: " + label);
+      allBookmarks.push({
+        label,
+        textSnippet: (text || "").substring(0, 300),
+        url: location.href,
+        savedAt: Date.now(),
+        msgKey: snippetKey(text || ""),
+        msgTail: snippetTail(text || ""),
+        msgLen: (text || "").length,
+        messageId: extractMsgId(el),
+        turnIndex: getMessages().indexOf(el)
+      });
+
+      rebuildIndex();
+      scheduleSync();
+      renderPanel();
+      chrome.storage.local.set({ bookmarks: allBookmarks }, () => {
+        if (chrome.runtime && chrome.runtime.lastError) { flash("Save failed"); return; }
+        flash("Saved: " + label);
+      });
     });
   }
 
@@ -551,14 +738,12 @@
   function scrollMsg(target, quiet) {
     if (!target) return false;
 
-    // By message ID
     if (target.messageId) {
       const safe = window.CSS?.escape ? CSS.escape(target.messageId) : target.messageId;
       const byId = document.querySelector('[data-message-id="' + safe + '"]');
       if (byId) { highlight(byId); return true; }
     }
 
-    // By turn index
     if (Number.isFinite(target.turnIndex) && target.turnIndex >= 0) {
       const msgs = getMessages();
       const el = msgs[Math.min(target.turnIndex, msgs.length - 1)];
@@ -569,14 +754,12 @@
       }
     }
 
-    // By text matching
     if (target.msgKey) {
       for (const m of getMessages()) {
         if (snippetKey(msgText(m)) === target.msgKey) { highlight(m); return true; }
       }
     }
 
-    // Fuzzy
     if (target.textSnippet) {
       const q = snippetKey(target.textSnippet).substring(0, 100);
       if (q) {

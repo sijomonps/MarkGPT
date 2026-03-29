@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "MarkGPT",
+  "name": "MarkGPT – Bookmark Messages in ChatGPT, Claude & Gemini",
   "short_name": "MarkGPT",
-  "version": "1.2.0",
+  "version": "1.0.0",
   "description": "Bookmark and quickly jump to important messages in ChatGPT, Claude, and Gemini conversations.",
   "minimum_chrome_version": "114",
   "icons": {
