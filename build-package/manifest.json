@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "MarkGPT – Bookmark Messages in ChatGPT, Claude & Gemini",
   "short_name": "MarkGPT",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Bookmark and quickly jump to important messages in ChatGPT, Claude, and Gemini conversations.",
   "minimum_chrome_version": "114",
   "icons": {
@@ -19,7 +19,7 @@
       "128": "icons/icon128.png"
     }
   },
-  "permissions": ["storage", "tabs"],
+  "permissions": ["storage"],
   "host_permissions": [
     "https://chat.openai.com/*",
     "https://chatgpt.com/*",

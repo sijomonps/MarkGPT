@@ -1,4 +1,4 @@
-/* MarkGPT - content.js (v2.2 - Gemini 2026 layout fix) */
+/* MarkGPT - content.js (v2.3 - selection bookmarks + cross-platform panel alignment) */
 (() => {
   if (window.__bkmrk_loaded) return;
   window.__bkmrk_loaded = true;
@@ -8,6 +8,9 @@
   const IS_CLAUDE = HOST === "claude.ai";
   const IS_GEMINI = HOST === "gemini.google.com";
   const IS_CHATGPT = HOST === "chatgpt.com" || HOST === "chat.openai.com";
+  const BOOKMARK_TEXT_LIMIT = 260;
+  const SELECTION_DEBOUNCE_MS = 140;
+  const SELECTION_MIN_CHARS = 2;
 
   /* ── State ── */
   let enabled = true;
@@ -23,6 +26,10 @@
   let observer = null;
   let syncTimer = 0;
   let heartbeat = 0;
+  let selectionBtn = null;
+  let selectionDebounce = 0;
+  let selectionDraft = null;
+  let selectionHooksInstalled = false;
   const btnMap = new WeakMap();   // host element → button element
   const hostMap = new WeakMap();  // message element → host element
   const msgElMap = new WeakMap(); // button → messageEl reference
@@ -54,7 +61,7 @@
   style.textContent = `
     .bk-row{display:flex;justify-content:flex-end;width:100%;margin-top:4px;pointer-events:auto;position:relative;z-index:9999}
     .bk-rbtn{width:22px;height:22px;border-radius:5px;border:none;background:transparent;color:inherit;opacity:.45;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:opacity .15s,background .12s;pointer-events:auto;position:relative;z-index:9999}
-    .bk-rbtn svg,.bk-abs svg{pointer-events:none}
+    .bk-rbtn svg,.bk-abs svg,.bk-sel-btn svg{pointer-events:none}
     .bk-rbtn:hover{opacity:.9;background:rgba(127,127,127,.12)}
     .bk-rbtn.on{opacity:.8}
     .bk-claude-host, .bk-chatgpt-host{position:relative !important}
@@ -84,19 +91,27 @@
     .bk-li:hover .bk-li-del{opacity:1}
     .bk-li-del:hover{background:rgba(255,255,255,.08);color:#ccc}
     .bk-em{padding:12px 8px;text-align:center;color:#4a4a4a;font-size:11px}
-    #bk-wm{padding:5px 8px 6px;text-align:center;font-size:9px;color:rgba(255,255,255,.45);letter-spacing:.4px;border-top:1px solid rgba(255,255,255,.12);user-select:none}
+    #bk-wm{padding:5px 8px 6px;text-align:center;font-size:10px;color:rgba(255,255,255,.45);letter-spacing:.4px;border-top:1px solid rgba(255,255,255,.12);user-select:none;display:flex;align-items:center;justify-content:center;gap:2px;flex-wrap:wrap}
+    #bk-wm a{color:inherit;text-decoration:none;opacity:.92;transition:opacity .12s,color .12s}
+    #bk-wm a:hover{opacity:1;color:rgba(255,255,255,.82)}
+    #bk-wm a:focus-visible{outline:1px solid rgba(255,255,255,.25);outline-offset:1px;border-radius:2px}
     #bk-modal-overlay{position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,.55);z-index:2147483646;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;pointer-events:auto}
     #bk-modal-overlay.show{opacity:1}
     #bk-modal{background:#2a2a2a;border:1px solid rgba(255,255,255,.15);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.6);padding:18px 20px;width:320px;max-width:90vw;font:13px/1.5 system-ui,sans-serif;color:#e0e0e0}
     #bk-modal h3{margin:0 0 12px;font-size:14px;font-weight:600;color:#fff}
     #bk-modal-input{width:100%;box-sizing:border-box;padding:8px 10px;border-radius:7px;border:1px solid rgba(255,255,255,.15);background:#1e1e1e;color:#e0e0e0;font:13px system-ui,sans-serif;outline:none;transition:border-color .15s}
     #bk-modal-input:focus{border-color:rgba(255,255,255,.35)}
+    #bk-modal-meta{display:flex;justify-content:flex-end;margin-top:6px;font-size:11px;color:#8c8c8c}
+    #bk-modal-count{font-variant-numeric:tabular-nums}
     #bk-modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
     #bk-modal-btns button{padding:6px 16px;border-radius:7px;border:none;font:500 12px system-ui,sans-serif;cursor:pointer;transition:background .12s}
     #bk-modal-cancel{background:rgba(255,255,255,.08);color:#aaa}
     #bk-modal-cancel:hover{background:rgba(255,255,255,.14)}
     #bk-modal-save{background:rgba(59,130,246,.8);color:#fff}
     #bk-modal-save:hover{background:rgba(59,130,246,1)}
+    #bk-sel-btn{position:fixed;top:-100px;left:-100px;width:26px;height:26px;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:rgba(36,36,36,.95);color:#e8e8e8;display:none;align-items:center;justify-content:center;padding:0;cursor:pointer;z-index:2147483645;box-shadow:0 5px 20px rgba(0,0,0,.45);opacity:0;transform:translateY(4px);transition:opacity .15s,transform .15s,background .12s}
+    #bk-sel-btn.show{display:flex;opacity:.92;transform:translateY(0)}
+    #bk-sel-btn:hover{opacity:1;background:rgba(60,60,60,.98)}
   `;
   document.head.appendChild(style);
 
@@ -131,6 +146,7 @@
     mkToast();
     mkPanel();
     installGlobalClickHandler();
+    installSelectionHooks();
     startObserver();
   }
 
@@ -145,6 +161,7 @@
     document.querySelectorAll(".bk-row, .bk-abs").forEach(b => b.remove());
     document.querySelectorAll(".bk-claude-host").forEach(h => h.classList.remove("bk-claude-host"));
     document.querySelectorAll(".bk-gemini-host").forEach(h => h.classList.remove("bk-gemini-host"));
+    hideSelectionButton();
     if (panel) panel.style.display = "none";
   }
 
@@ -157,13 +174,18 @@
     // Use capture phase at the document level to intercept clicks BEFORE
     // React/Angular/etc. event delegation can swallow them
     document.addEventListener("click", (e) => {
-      const btn = e.target.closest(".bk-rbtn, .bk-abs");
+      const btn = e.target.closest(".bk-rbtn, .bk-abs, .bk-sel-btn");
       if (!btn) return;
 
       // This is our bookmark button — stop everything
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
+
+      if (btn.classList.contains("bk-sel-btn")) {
+        saveSelectionBookmark();
+        return;
+      }
 
       const msgEl = msgElMap.get(btn);
       if (!msgEl) return;
@@ -177,17 +199,216 @@
 
     // Also block mousedown/pointerdown from propagating on our BOOKMARK buttons only
     document.addEventListener("mousedown", (e) => {
-      if (e.target.closest(".bk-rbtn, .bk-abs")) {
+      if (e.target.closest(".bk-rbtn, .bk-abs, .bk-sel-btn")) {
         e.stopPropagation();
         e.stopImmediatePropagation();
       }
     }, true);
     document.addEventListener("pointerdown", (e) => {
-      if (e.target.closest(".bk-rbtn, .bk-abs")) {
+      if (e.target.closest(".bk-rbtn, .bk-abs, .bk-sel-btn")) {
         e.stopPropagation();
         e.stopImmediatePropagation();
       }
     }, true);
+  }
+
+  /* ── Text selection bookmark action ── */
+  function installSelectionHooks() {
+    if (selectionHooksInstalled) return;
+    selectionHooksInstalled = true;
+
+    document.addEventListener("selectionchange", () => {
+      if (!enabled) { hideSelectionButton(); return; }
+      if (selectionDebounce) clearTimeout(selectionDebounce);
+      selectionDebounce = setTimeout(() => {
+        selectionDebounce = 0;
+        syncSelectionButton();
+      }, SELECTION_DEBOUNCE_MS);
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") hideSelectionButton();
+    }, true);
+
+    document.addEventListener("mousedown", (e) => {
+      if (e.target.closest("#bk-modal-overlay, .bk-sel-btn")) return;
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) hideSelectionButton();
+    }, true);
+
+    window.addEventListener("scroll", () => {
+      if (selectionBtn && selectionBtn.classList.contains("show")) syncSelectionButton();
+    }, { passive: true, capture: true });
+
+    window.addEventListener("resize", () => {
+      if (selectionBtn && selectionBtn.classList.contains("show")) syncSelectionButton();
+    }, { passive: true });
+  }
+
+  function mkSelectionButton() {
+    if (selectionBtn) return;
+    selectionBtn = document.createElement("button");
+    selectionBtn.id = "bk-sel-btn";
+    selectionBtn.className = "bk-sel-btn";
+    selectionBtn.type = "button";
+    selectionBtn.title = "Bookmark selected text";
+    selectionBtn.innerHTML = IC_OUT;
+    document.documentElement.appendChild(selectionBtn);
+  }
+
+  function syncSelectionButton() {
+    if (!enabled || document.getElementById("bk-modal-overlay")) {
+      hideSelectionButton();
+      return;
+    }
+
+    const payload = readSelectionPayload();
+    if (!payload) {
+      hideSelectionButton();
+      return;
+    }
+
+    mkSelectionButton();
+    selectionDraft = payload;
+    const pos = selectionButtonPos(payload.rect);
+    selectionBtn.style.left = pos.left + "px";
+    selectionBtn.style.top = pos.top + "px";
+    selectionBtn.classList.add("show");
+  }
+
+  function selectionButtonPos(rect) {
+    const btnSize = 26;
+    let left = Math.round(rect.right + 8);
+    let top = Math.round(rect.top + rect.height / 2 - btnSize / 2);
+
+    if (left + btnSize + 8 > window.innerWidth) {
+      left = Math.max(8, Math.round(rect.left - btnSize - 8));
+    }
+    top = Math.max(8, Math.min(top, window.innerHeight - btnSize - 8));
+    return { left, top };
+  }
+
+  function hideSelectionButton() {
+    selectionDraft = null;
+    if (!selectionBtn) return;
+    selectionBtn.classList.remove("show");
+    selectionBtn.style.left = "-100px";
+    selectionBtn.style.top = "-100px";
+  }
+
+  function selectionRect(range) {
+    if (!range) return null;
+    let rect = range.getBoundingClientRect();
+    if (!rect || (!rect.width && !rect.height)) {
+      const rects = range.getClientRects();
+      if (rects && rects.length) rect = rects[rects.length - 1];
+    }
+    return rect || null;
+  }
+
+  function nodeToElement(node) {
+    if (!node) return null;
+    return node instanceof Element ? node : node.parentElement;
+  }
+
+  function selectionMessage(sel) {
+    const candidates = [
+      nodeToElement(sel.anchorNode),
+      nodeToElement(sel.focusNode),
+      nodeToElement(sel.rangeCount ? sel.getRangeAt(0).commonAncestorContainer : null)
+    ];
+
+    for (const el of candidates) {
+      if (!el) continue;
+      const msg = el.closest(platformSelector());
+      if (msg) return msg;
+      if (IS_GEMINI) {
+        const gm = el.closest("model-response, user-query");
+        if (gm) return gm;
+      }
+    }
+    return null;
+  }
+
+  function readSelectionPayload() {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+
+    const text = norm(sel.toString());
+    if (text.length < SELECTION_MIN_CHARS) return null;
+
+    const anchorEl = nodeToElement(sel.anchorNode);
+    if (!anchorEl) return null;
+    if (anchorEl.closest("#bk-p, #bk-t, #bk-modal-overlay, .bk-sel-btn")) return null;
+
+    const rect = selectionRect(sel.getRangeAt(0));
+    if (!rect) return null;
+
+    return {
+      text: text.substring(0, BOOKMARK_TEXT_LIMIT),
+      messageEl: selectionMessage(sel),
+      rect
+    };
+  }
+
+  function saveSelectionBookmark() {
+    if (!selectionDraft || !selectionDraft.text) {
+      hideSelectionButton();
+      return;
+    }
+
+    const draft = selectionDraft;
+    const initialValue = draft.text.substring(0, BOOKMARK_TEXT_LIMIT);
+
+    hideSelectionButton();
+    try {
+      const sel = window.getSelection();
+      if (sel) sel.removeAllRanges();
+    } catch {}
+
+    showBookmarkModal({
+      title: "Bookmark Selection",
+      placeholder: "Edit selected text",
+      initialValue,
+      maxLen: BOOKMARK_TEXT_LIMIT
+    }).then((result) => {
+      if (result === null) return;
+
+      const picked = norm(result).substring(0, BOOKMARK_TEXT_LIMIT);
+      if (!picked) {
+        flash("Bookmark text is empty");
+        return;
+      }
+
+      const scopedSig = snippetKey(picked) + "|" + snippetTail(picked) + "|" + picked.length;
+      if (savedScopedSigs.has(basePath(location.href) + "||" + scopedSig)) {
+        flash("Already bookmarked");
+        return;
+      }
+
+      const labelSeed = picked.substring(0, 44);
+      const label = labelSeed ? (labelSeed.length >= 44 ? labelSeed + "…" : labelSeed) : "Bookmark";
+
+      allBookmarks.push({
+        label,
+        textSnippet: picked,
+        url: location.href,
+        savedAt: Date.now(),
+        msgKey: snippetKey(picked),
+        msgTail: snippetTail(picked),
+        msgLen: picked.length,
+        messageId: extractMsgId(draft.messageEl),
+        turnIndex: draft.messageEl ? getMessages().indexOf(draft.messageEl) : -1
+      });
+
+      rebuildIndex();
+      scheduleSync();
+      renderPanel();
+      chrome.storage.local.set({ bookmarks: allBookmarks }, () => {
+        if (chrome.runtime && chrome.runtime.lastError) { flash("Save failed"); return; }
+        flash("Saved: " + label);
+      });
+    });
   }
 
   /* ── Toast ── */
@@ -212,7 +433,7 @@
     panel.id = "bk-p";
     panel.innerHTML =
       '<div id="bk-tog">' + IC_SM + '<span id="bk-tog-n">0</span></div>' +
-      '<div id="bk-list"><div id="bk-list-inner"></div><div id="bk-wm">MarkGPT by Sijomon P S</div></div>';
+      '<div id="bk-list"><div id="bk-list-inner"></div><div id="bk-wm">MarkGPT by <a href="https://sijomonps.github.io/" target="_blank" rel="noopener noreferrer">Sijomon P S ❤️</a></div></div>';
     document.documentElement.appendChild(panel);
     panelCountEl = panel.querySelector("#bk-tog-n");
     panelListEl = panel.querySelector("#bk-list-inner");
@@ -227,19 +448,34 @@
 
   function posPanel() {
     if (!panel) return;
-    let offset = 10;
-    if (IS_GEMINI) {
-      // Gemini sidebar: look for the side-nav or app-drawer
-      const sidebar = document.querySelector("side-navigation-v2, bard-sidenav, mat-sidenav, [class*='sidenav']:not([class*='content'])");
-      if (sidebar) {
-        const r = sidebar.getBoundingClientRect();
-        if (r.width > 0 && r.right < window.innerWidth * 0.5) offset = Math.round(r.right) + 10;
-      }
-    } else {
-      const nav = document.querySelector("nav");
-      if (nav) offset = Math.round(nav.getBoundingClientRect().right) + 10;
-    }
-    panel.style.left = Math.min(Math.max(10, offset), window.innerWidth - 230) + "px";
+    const offset = panelOffsetFromLeftRail();
+    panel.style.left = Math.min(Math.max(12, offset), window.innerWidth - 230) + "px";
+  }
+
+  function panelOffsetFromLeftRail() {
+    const selectors = [
+      "aside",
+      "nav",
+      "side-navigation-v2",
+      "bard-sidenav",
+      "mat-sidenav",
+      "[data-testid*='sidebar']",
+      "[class*='sidebar']:not([class*='content'])",
+      "[class*='sidenav']:not([class*='content'])"
+    ];
+
+    let railRight = 0;
+    const nodes = document.querySelectorAll(selectors.join(","));
+    nodes.forEach((node) => {
+      if (!(node instanceof HTMLElement)) return;
+      const r = node.getBoundingClientRect();
+      if (r.width < 72 || r.height < 120) return;
+      if (r.left > 40) return;
+      if (r.right <= 0 || r.right >= window.innerWidth * 0.65) return;
+      railRight = Math.max(railRight, Math.round(r.right));
+    });
+
+    return railRight ? railRight + 12 : 18;
   }
 
   function renderPanel() {
@@ -301,6 +537,7 @@
     if (syncTimer) { clearTimeout(syncTimer); syncTimer = 0; }
     if (heartbeat) { clearInterval(heartbeat); heartbeat = 0; }
     if (geminiSyncDebounce) { clearTimeout(geminiSyncDebounce); geminiSyncDebounce = 0; }
+    if (selectionDebounce) { clearTimeout(selectionDebounce); selectionDebounce = 0; }
   }
 
   function scheduleSync() {
@@ -599,8 +836,13 @@
   }
 
   /* ── Custom modal dialog ── */
-  function showBookmarkModal() {
+  function showBookmarkModal(opts = {}) {
     return new Promise((resolve) => {
+      const title = String(opts.title || "Bookmark Chat");
+      const placeholder = String(opts.placeholder || "label");
+      const initialValue = String(opts.initialValue || "");
+      const maxLen = Number.isFinite(opts.maxLen) ? Math.max(32, Math.min(300, opts.maxLen)) : 300;
+
       // Remove any existing modal
       const old = document.getElementById("bk-modal-overlay");
       if (old) old.remove();
@@ -609,8 +851,9 @@
       overlay.id = "bk-modal-overlay";
       overlay.innerHTML =
         '<div id="bk-modal">' +
-          '<h3>Bookmark Chat</h3>' +
-          '<input id="bk-modal-input" type="text" placeholder="label" autocomplete="off" />' +
+          '<h3>' + esc(title) + '</h3>' +
+          '<input id="bk-modal-input" type="text" placeholder="' + esc(placeholder) + '" autocomplete="off" />' +
+          '<div id="bk-modal-meta"><span id="bk-modal-count">0/' + maxLen + '</span></div>' +
           '<div id="bk-modal-btns">' +
             '<button id="bk-modal-cancel">Cancel</button>' +
             '<button id="bk-modal-save">Save</button>' +
@@ -623,9 +866,16 @@
       overlay.classList.add("show");
 
       const input = overlay.querySelector("#bk-modal-input");
+      const count = overlay.querySelector("#bk-modal-count");
       const saveBtn = overlay.querySelector("#bk-modal-save");
       const cancelBtn = overlay.querySelector("#bk-modal-cancel");
       let resolved = false;
+
+      input.maxLength = maxLen;
+      input.value = initialValue.substring(0, maxLen);
+      const syncCount = () => { count.textContent = input.value.length + "/" + maxLen; };
+      syncCount();
+      input.addEventListener("input", syncCount);
 
       function cleanup(result) {
         if (resolved) return;
@@ -669,7 +919,12 @@
       }, true);
 
       // Focus input
-      setTimeout(() => { try { input.focus(); } catch(e) {} }, 80);
+      setTimeout(() => {
+        try {
+          input.focus();
+          input.select();
+        } catch(e) {}
+      }, 80);
     });
   }
 
@@ -677,7 +932,7 @@
   function doSave(el) {
     const text = msgText(el);
 
-    showBookmarkModal().then(result => {
+    showBookmarkModal({ maxLen: 300 }).then(result => {
       if (result === null) return; // cancelled
 
       let label = result;

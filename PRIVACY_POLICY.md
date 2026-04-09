@@ -12,7 +12,7 @@ MarkGPT stores bookmark data locally in your browser using Chrome extension stor
 
 ## How Data Is Used
 - To save and display your bookmarks
-- To navigate and scroll to bookmarked messages inside ChatGPT
+- To navigate and scroll to bookmarked messages inside supported chat sites (ChatGPT, Claude, Gemini)
 
 ## Data Sharing
 - MarkGPT does not sell data.
@@ -23,8 +23,7 @@ MarkGPT stores bookmark data locally in your browser using Chrome extension stor
 
 ## Permissions
 - `storage`: Save bookmarks locally.
-- `tabs`: Detect current tab and navigate to bookmarked chat URLs.
-- Host access to `chat.openai.com` and `chatgpt.com`: Inject content script only on ChatGPT pages.
+- Host access to `chat.openai.com`, `chatgpt.com`, `claude.ai`, and `gemini.google.com`: Inject content script only on supported chat pages.
 
 ## Contact
 For support or privacy questions, provide your support email in the Chrome Web Store listing.
