@@ -37,4 +37,4 @@ https://chromewebstore.google.com/detail/eimdlmdbonaemjmfnnnknjejlijpmcij?utm_so
 
 ## License
 
-See [LICENSE](LICENSE).
+See [LICENSE](https://github.com/sijomonps/MarkGPT/blob/main/LICENSE).
